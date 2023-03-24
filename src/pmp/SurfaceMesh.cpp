@@ -989,6 +989,62 @@ void SurfaceMesh::remove_loop_helper(Halfedge h)
     has_garbage_ = true;
 }
 
+void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
+{
+    // Merges h2 into h1, removing a boundary and joining two faces.
+    // h1 must be a boundary halfedge, with the same vertices at each
+    // end as h2. The opposite of h2 must also be a boundary.
+    // After this operation h2 will be deleted.
+
+    // Check that the edges being combined share the same vertices.
+
+    assert(to_vertex(h1) == to_vertex(h2));
+    assert(from_vertex(h1) == from_vertex(h2));
+    assert(
+        from_vertex(h1) ==
+        to_vertex(prev_halfedge(
+            h2))); // (The effective, not just declared, previous vertex. h2 has a face so it will also always have a previous edge.)
+
+    // If h1 is not a boundary, then changing its connectivity will break an
+    // existing face.
+
+    assert(is_boundary(h1));
+
+    // If the opposite side of h2 is not a boundary, then it is not safe to
+    // delete the edge.
+
+    assert(is_boundary(opposite_halfedge(h2)));
+
+    // h1 is going to become h2; it will adopt h2's connectivity and face, but
+    // retain its place in memory.
+
+    // The edges previously connecting to h1 will now to connect to those
+    // previously connecting to h2 - do this before changing those pointers
+    // on h1 or h2.
+
+    set_next_halfedge(prev_halfedge(h1), next_halfedge(opposite_halfedge(h2))); // h3
+    set_prev_halfedge(next_halfedge(h1), prev_halfedge(opposite_halfedge(h2))); // h3
+
+    // Now h1 is isolated, and can adopt h2's connectivity.
+
+    set_next_halfedge(h1, next_halfedge(h2));
+    set_prev_halfedge(h1, prev_halfedge(h2));
+    set_face(h1, face(h2));
+
+    // In case the face pointed to a side of the deleted edge
+    set_halfedge(face(h2), h1);
+
+    // In case either vertex points to the deleted edge
+    set_halfedge(from_vertex(h2), h1);
+    set_halfedge(from_vertex(opposite_halfedge(h2)), opposite_halfedge(h1));
+
+    // Now h2/h3 can be deleted.
+
+    edeleted_[edge(h2)] = true;
+    ++deleted_edges_;
+    has_garbage_ = true;
+}
+
 void SurfaceMesh::delete_vertex(Vertex v)
 {
     if (is_deleted(v))

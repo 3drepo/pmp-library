@@ -1869,6 +1869,10 @@ public:
         return Face(static_cast<IndexType>(faces_size()) - 1);
     }
 
+    // Merges boundary h1 into non-boundary h2, connecting the incident faces
+    // and removing the boundary.
+    void combine_edges(Halfedge h1, Halfedge h2);
+
     //!@}
 
 private:

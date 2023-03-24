@@ -27,4 +27,10 @@ SurfaceMesh open_cone();
 // a mesh with texcoords and texture seams
 SurfaceMesh texture_seams_mesh();
 
+// a unit cube expressed as a triangle mesh
+SurfaceMesh triangle_cube();
+
+// a unit cube expressed as a quad
+SurfaceMesh quad_cube();
+
 } // namespace pmp

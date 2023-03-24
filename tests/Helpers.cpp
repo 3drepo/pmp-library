@@ -192,4 +192,56 @@ SurfaceMesh texture_seams_mesh()
     return mesh;
 }
 
+SurfaceMesh triangle_cube() 
+{
+    SurfaceMesh mesh;
+
+    auto v0 = mesh.add_vertex(pmp::Point(-0.5, -0.5, -0.5));
+    auto v1 = mesh.add_vertex(pmp::Point(0.5, -0.5, -0.5));
+    auto v2 = mesh.add_vertex(pmp::Point(0.5, 0.5, -0.5));
+    auto v3 = mesh.add_vertex(pmp::Point(-0.5, 0.5, -0.5));
+    auto v4 = mesh.add_vertex(pmp::Point(-0.5, 0.5, 0.5));
+    auto v5 = mesh.add_vertex(pmp::Point(0.5, 0.5, 0.5));
+    auto v6 = mesh.add_vertex(pmp::Point(0.5, -0.5, 0.5));
+    auto v7 = mesh.add_vertex(pmp::Point(-0.5, -0.5, 0.5));
+
+    mesh.add_triangle(v0, v2, v1);
+    mesh.add_triangle(v0, v3, v2);
+    mesh.add_triangle(v2, v3, v4);
+    mesh.add_triangle(v2, v4, v5);
+    mesh.add_triangle(v1, v2, v5);
+    mesh.add_triangle(v1, v5, v6);
+    mesh.add_triangle(v0, v7, v4);
+    mesh.add_triangle(v0, v4, v3);
+    mesh.add_triangle(v5, v4, v7);
+    mesh.add_triangle(v5, v7, v6);
+    mesh.add_triangle(v0, v6, v7);
+    mesh.add_triangle(v0, v1, v6);
+
+    return mesh;
+}
+
+SurfaceMesh quad_cube()
+{
+    SurfaceMesh mesh;
+
+    auto v0 = mesh.add_vertex(pmp::Point(-0.5, -0.5, -0.5));
+    auto v1 = mesh.add_vertex(pmp::Point(0.5, -0.5, -0.5));
+    auto v2 = mesh.add_vertex(pmp::Point(0.5, 0.5, -0.5));
+    auto v3 = mesh.add_vertex(pmp::Point(-0.5, 0.5, -0.5));
+    auto v4 = mesh.add_vertex(pmp::Point(-0.5, 0.5, 0.5));
+    auto v5 = mesh.add_vertex(pmp::Point(0.5, 0.5, 0.5));
+    auto v6 = mesh.add_vertex(pmp::Point(0.5, -0.5, 0.5));
+    auto v7 = mesh.add_vertex(pmp::Point(-0.5, -0.5, 0.5));
+
+    mesh.add_quad(v0, v3, v2, v1);
+    mesh.add_quad(v1, v2, v5, v6);
+    mesh.add_quad(v7, v4, v3, v0);
+    mesh.add_quad(v6, v5, v4, v7);
+    mesh.add_quad(v1, v6, v7, v0);
+    mesh.add_quad(v3, v4, v5, v2);
+
+    return mesh;
+}
+
 } // namespace pmp

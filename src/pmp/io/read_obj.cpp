@@ -9,14 +9,34 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
 {
     std::array<char, 200> s;
     float x, y, z;
-    std::vector<Vertex> vertices;
-    std::vector<TexCoord> all_tex_coords; //individual texture coordinates
-    std::vector<int>
-        halfedge_tex_idx; //texture coordinates sorted for halfedges
-    HalfedgeProperty<TexCoord> tex_coords =
-        mesh.halfedge_property<TexCoord>("h:tex");
-    bool with_tex_coord = false;
+    std::vector<Vertex> face_vertices;
+    std::vector<std::tuple<int, int, int>> face;
+    std::tuple<int, int, int> attributes = {0, 0, 0};
 
+    bool with_tex_coord = false;
+    bool with_normals = false;
+    auto vertex_tex = mesh.add_vertex_property<TexCoord>("v:tex");
+    auto vertex_normals = mesh.add_vertex_property<Normal>("v:normal");
+
+    struct attribute_hasher
+    {
+        std::size_t operator()(std::tuple<int, int, int> const& t) const noexcept
+        {
+            uint64_t a0 = std::get<0>(t);
+            uint64_t a1 = std::get<1>(t);
+            uint64_t a2 = std::get<2>(t);
+            return (a0 << 42) | (a1 << 21) | (a0);
+        }
+    };
+
+    // Maps between attribute combinations and the face that match them
+    std::unordered_map<std::tuple<int, int, int>, Vertex, attribute_hasher> vertex_map;
+
+    // Lists of attributes as ordered in the OBJ
+    std::vector<Point> all_positions;
+    std::vector<Normal> all_normals;
+    std::vector<TexCoord> all_tex_coords; 
+   
     // open file (in ASCII mode)
     FILE* in = fopen(file.string().c_str(), "r");
     if (!in)
@@ -25,7 +45,7 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
     // clear line once
     memset(s.data(), 0, 200);
 
-    // parse line by line (currently only supports vertex positions & faces
+    // parse line by line (currently only supports vertex all_positions & faces
     while (in && !feof(in) && fgets(s.data(), 200, in))
     {
         // comment
@@ -37,7 +57,7 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
         {
             if (sscanf(s.data(), "v %f %f %f", &x, &y, &z))
             {
-                mesh.add_vertex(Point(x, y, z));
+                all_positions.push_back(Point(x, y, z));
             }
         }
 
@@ -46,8 +66,7 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
         {
             if (sscanf(s.data(), "vn %f %f %f", &x, &y, &z))
             {
-                // problematic as it can be either a vertex property when interpolated
-                // or a halfedge property for hard edges
+                all_normals.push_back(Normal(x, y, z));
             }
         }
 
@@ -56,7 +75,7 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
         {
             if (sscanf(s.data(), "vt %f %f", &x, &y))
             {
-                all_tex_coords.emplace_back(x, y);
+                all_tex_coords.push_back(TexCoord(x, y));
             }
         }
 
@@ -67,8 +86,7 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
             bool end_of_vertex(false);
             char *p0, *p1(s.data() + 1);
 
-            vertices.clear();
-            halfedge_tex_idx.clear();
+            face.clear();
 
             // skip white-spaces
             while (*p1 == ' ')
@@ -113,19 +131,29 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
                         {
                             int idx = atoi(p0);
                             if (idx < 0)
-                                idx = mesh.n_vertices() + idx + 1;
-                            vertices.emplace_back(idx - 1);
+                                idx = all_positions.size() + idx + 1;
+                            std::get<0>(attributes) = idx - 1;
+
                             break;
                         }
                         case 1: // texture coord
                         {
-                            int idx = atoi(p0) - 1;
-                            halfedge_tex_idx.push_back(idx);
+                            int idx = atoi(p0);
+                            if (idx < 0)
+                                idx = all_tex_coords.size() + idx + 1;
+                            std::get<1>(attributes) = idx - 1;
                             with_tex_coord = true;
                             break;
                         }
                         case 2: // normal
+                        {
+                            int idx = atoi(p0);
+                            if (idx < 0)
+                                idx = all_normals.size() + idx + 1;
+                            std::get<2>(attributes) = idx - 1;
+                            with_normals = true;
                             break;
+                        }
                     }
                 }
 
@@ -135,25 +163,39 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
                 {
                     component = 0;
                     end_of_vertex = false;
+                    face.push_back(attributes);
+                    attributes = {0, 0, 0};
                 }
             }
 
-            Face f = mesh.add_face(vertices);
-
-            // add texture coordinates
-            if (with_tex_coord && f.is_valid())
+            face_vertices.clear();
+            for (auto v : face)
             {
-                auto h_fit = mesh.halfedges(f);
-                auto h_end = h_fit;
-                unsigned v_idx = 0;
-                do
+                auto existing_vertex = vertex_map.find(v);
+                if (existing_vertex == vertex_map.end())
                 {
-                    tex_coords[*h_fit] =
-                        all_tex_coords.at(halfedge_tex_idx.at(v_idx));
-                    ++v_idx;
-                    ++h_fit;
-                } while (h_fit != h_end);
+                    auto m_vertex = mesh.add_vertex(
+                        all_positions[std::get<0>(v)]);
+                    if (with_tex_coord)
+                    {
+                        vertex_tex[m_vertex] =
+                            all_tex_coords[std::get<1>(v)];
+                    }
+                    if (with_normals)
+                    {
+                        vertex_normals[m_vertex] =
+                            all_normals[std::get<2>(v)];
+                    }
+                    vertex_map[v] = m_vertex;
+                    face_vertices.push_back(m_vertex);
+                }
+                else
+                {
+                    face_vertices.push_back(existing_vertex->second);
+                }
             }
+
+            Face f = mesh.add_face(face_vertices);
         }
         // clear line
         memset(s.data(), 0, 200);
@@ -162,7 +204,11 @@ void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file)
     // if there are no textures, delete texture property!
     if (!with_tex_coord)
     {
-        mesh.remove_halfedge_property(tex_coords);
+        mesh.remove_vertex_property(vertex_tex);
+    }
+    if (!with_normals)
+    {
+        mesh.remove_vertex_property(vertex_normals);
     }
 
     fclose(in);

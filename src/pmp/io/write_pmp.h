@@ -10,7 +10,7 @@
 
 namespace pmp {
 
-void write_pmp(SurfaceMesh& mesh, const std::filesystem::path& file,
+void write_pmp(const SurfaceMesh& mesh, const std::filesystem::path& file,
                const IOFlags& flags);
 
 } // namespace pmp

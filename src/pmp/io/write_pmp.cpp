@@ -17,6 +17,7 @@ void write_pmp(const SurfaceMesh& mesh, const std::filesystem::path& file,
 
     // get properties
     auto htex = mesh.get_halfedge_property<TexCoord>("h:tex");
+    auto vnormal = mesh.get_vertex_property<Normal>("v:normal");
 
     // how many elements?
     auto nv = mesh.n_vertices();
@@ -29,6 +30,7 @@ void write_pmp(const SurfaceMesh& mesh, const std::filesystem::path& file,
     tfwrite(out, ne);
     tfwrite(out, nf);
     tfwrite(out, (bool)htex);
+    tfwrite(out, (bool)vnormal);
 
     // write properties to file
     // clang-format off
@@ -41,6 +43,9 @@ void write_pmp(const SurfaceMesh& mesh, const std::filesystem::path& file,
     // texture coordinates
     if (htex)
         fwrite((char*)htex.data(), sizeof(TexCoord), nh, out);
+
+    if (vnormal)
+        fwrite((char*)vnormal.data(), sizeof(Normal), nv, out);
 
     fclose(out);
 }

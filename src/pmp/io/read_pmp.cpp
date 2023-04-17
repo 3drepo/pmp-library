@@ -27,6 +27,9 @@ void read_pmp(SurfaceMesh& mesh, const std::filesystem::path& file)
     bool has_htex{false};
     tfread(in, has_htex);
 
+    bool has_vnormal{false};
+    tfread(in, has_vnormal);    
+
     // resize containers
     mesh.vprops_.resize(nv);
     mesh.hprops_.resize(nh);
@@ -52,6 +55,13 @@ void read_pmp(SurfaceMesh& mesh, const std::filesystem::path& file)
         auto htex = mesh.halfedge_property<TexCoord>("h:tex");
         size_t nhtc = fread((char*)htex.data(), sizeof(TexCoord), nh, in);
         PMP_ASSERT(nhtc == nh);
+    }
+
+    if (has_vnormal)
+    {
+        auto vnormal = mesh.vertex_property<Normal>("v:normal");
+        size_t nvn = fread((char*)vnormal.data(), sizeof(Normal), nv, in);
+        PMP_ASSERT(nvn == nv);
     }
 
     fclose(in);

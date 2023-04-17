@@ -996,8 +996,9 @@ void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
     // end as h2. The opposite of h2 must also be a boundary.
     // After this operation h2 will be deleted.
 
-    // Check that the edges being combined share the same vertices.
+    // Check that the edges can be collapsed...
 
+    assert(edge(h1) != edge(h2));
     assert(to_vertex(h1) == to_vertex(h2));
     assert(from_vertex(h1) == from_vertex(h2));
     assert(
@@ -1032,11 +1033,17 @@ void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
     set_face(h1, face(h2));
 
     // In case the face pointed to a side of the deleted edge
-    set_halfedge(face(h2), h1);
+    if (face(h2).is_valid())
+    {
+        set_halfedge(face(h2), h1);
+    }
 
     // In case either vertex points to the deleted edge
     set_halfedge(from_vertex(h2), h1);
     set_halfedge(from_vertex(opposite_halfedge(h2)), opposite_halfedge(h1));
+
+    adjust_outgoing_halfedge(from_vertex(h2));
+    adjust_outgoing_halfedge(to_vertex(h2));
 
     // Now h2/h3 can be deleted.
 

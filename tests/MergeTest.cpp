@@ -29,6 +29,29 @@ void prepare_mesh(SurfaceMesh a, SurfaceMesh& b)
     Normals::compute_vertex_normals(b);
 }
 
+void add_mesh(SurfaceMesh a, SurfaceMesh& b, Point offset)
+{
+    std::unordered_map<pmp::IndexType, pmp::Vertex> vertex_map;
+
+    auto a_p = a.get_vertex_property<pmp::Point>("v:point");
+    for (auto v : a.vertices())
+    {
+        vertex_map[v.idx()] = b.add_vertex(a_p[v] + offset);
+    }
+
+    for (auto f : a.faces())
+    {
+        std::vector<Vertex> b_vertices;
+        for (auto v : a.vertices(f))
+        {
+            b_vertices.push_back(vertex_map[v.idx()]);
+        }
+        b.add_face(b_vertices);
+    }
+
+    Normals::compute_vertex_normals(b);
+}
+
 void remove_faces(SurfaceMesh& mesh, std::vector<size_t> indices)
 {
     auto v = *mesh.vertices_begin();
@@ -120,6 +143,32 @@ void check_references(SurfaceMesh& mesh)
     }
 
     EXPECT_EQ(face_valence_sum, face_halfedge_references_sum);
+}
+
+// This function checks for unreachable patches: patches that reference a vertex
+// but are not referenced by that vertex.
+void check_unreachable(SurfaceMesh& mesh) 
+{
+    std::unordered_map<pmp::IndexType, std::set<pmp::IndexType>>
+        outgoing_edges;
+
+    // Collect all references reachable from the vertex
+    for (auto v : mesh.vertices())
+    {
+        for (auto h : mesh.halfedges(v))
+        {
+            outgoing_edges[v.idx()].insert(h.idx());
+        }
+    }
+
+    // Now check connectivity from the other side (the edges)
+
+    for (auto h : mesh.halfedges())
+    {
+        auto v = mesh.from_vertex(h).idx();
+        auto references = outgoing_edges[v];
+        EXPECT_GT(references.count(h.idx()), 0);
+    }
 }
 
 // This tests a number of preconditions to the actual tests, such that the
@@ -324,4 +373,24 @@ TEST(MergeTest, open_faces)
     EXPECT_EQ(mesh.n_edges(), 26);     
     EXPECT_EQ(mesh.n_halfedges(), 52); 
     EXPECT_EQ(mesh.n_faces(), 10);      
+}
+
+// This test makes sure that the algorithm doesn't introduce un-reachable
+// patches: patches that reference a vertex but are not referenced by that
+// vertex.
+TEST(MergeTest, unreachable_patches) 
+{
+    auto a = triangle_cube();
+    add_mesh(triangle_cube(), a, pmp::Point(1, 1, 1));  // This line combines the meshes so that they share one corner.
+
+    // All vertices should still be manifold at this stage
+    for (auto v : a.vertices())
+    {
+        EXPECT_TRUE(a.is_manifold(v));
+    }
+
+    Merge m(a);
+    m.merge();
+
+    check_unreachable(a);
 }

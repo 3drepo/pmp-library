@@ -2,6 +2,7 @@
 // Distributed under a MIT-style license, see LICENSE.txt for details.
 
 #include "pmp/io/read_obj.h"
+#include <unordered_map>
 
 namespace pmp {
 

@@ -1700,6 +1700,8 @@ public:
     //! to call garbage_collection() to finally remove them.
     void collapse(Halfedge h);
 
+    void collapse(Vertex v0, Vertex v1);
+
     //! \return whether removing the edge \p e is topologically legal.
     bool is_removal_ok(Edge e) const;
 

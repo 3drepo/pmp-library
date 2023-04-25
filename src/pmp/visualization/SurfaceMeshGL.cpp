@@ -289,6 +289,7 @@ void SurfaceMeshGL::update_opengl_buffers()
     auto vtex = get_vertex_property<TexCoord>("v:tex");
     auto htex = get_halfedge_property<TexCoord>("h:tex");
     auto fcolor = get_face_property<Color>("f:color");
+    auto hcolor = get_halfedge_property<Color>("h:color");
 
     // index array for remapping vertex indices during duplication
     auto vertex_indices = add_vertex_property<size_t>("v:index");
@@ -310,7 +311,7 @@ void SurfaceMeshGL::update_opengl_buffers()
         if (htex || vtex)
             tex_array.reserve(3 * n_faces());
 
-        if ((vcolor || fcolor) && use_colors_)
+        if ((vcolor || fcolor || hcolor) && use_colors_)
             color_array.reserve(3 * n_faces());
 
         // precompute normals for easy cases
@@ -390,6 +391,10 @@ void SurfaceMeshGL::update_opengl_buffers()
                 {
                     corner_colors.push_back((vec3)vcolor[v]);
                 }
+                else if (hcolor && use_colors_)
+                {
+                    corner_colors.push_back((vec3)hcolor[h]);
+                }
                 else if (fcolor && use_colors_)
                 {
                     corner_colors.push_back((vec3)fcolor[f]);
@@ -420,7 +425,7 @@ void SurfaceMeshGL::update_opengl_buffers()
                     tex_array.push_back(corner_texcoords[i2]);
                 }
 
-                if ((vcolor || fcolor) && use_colors_)
+                if ((vcolor || fcolor || hcolor) && use_colors_)
                 {
                     color_array.push_back(corner_colors[i0]);
                     color_array.push_back(corner_colors[i1]);
@@ -708,6 +713,8 @@ void SurfaceMeshGL::draw(const mat4& projection_matrix,
     {
         if (n_faces())
         {
+            phong_shader_.set_uniform("use_vertex_color", false);
+
             // draw faces
             glDepthRange(0.01, 1.0);
             draw_triangles();
@@ -738,8 +745,42 @@ void SurfaceMeshGL::draw(const mat4& projection_matrix,
         }
     }
 
+    else if (draw_mode == "Line")
+    {
+        if (n_faces())
+        {
+            // overlay edges
+            glDepthRange(0.0, 1.0);
+            glDepthFunc(GL_LEQUAL);
+            phong_shader_.set_uniform("front_color", vec3(0.1, 0.1, 0.1));
+            phong_shader_.set_uniform("back_color", vec3(0.1, 0.1, 0.1));
+            phong_shader_.set_uniform("use_lighting", false);
+            phong_shader_.set_uniform("use_vertex_color", true);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, edge_buffer_);
+            glDrawElements(GL_LINES, n_edges_, GL_UNSIGNED_INT, nullptr);
+            glDepthFunc(GL_LESS);
+
+            // overlay seam edges
+            if (n_seams_ > 0)
+            {
+                glDepthRange(0.0, 1.0);
+                glDepthFunc(GL_LEQUAL);
+                phong_shader_.set_uniform("front_color", vec3(1, 0, 0.));
+                phong_shader_.set_uniform("back_color", vec3(0.1, 0, 0));
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, seam_buffer_);
+                glDrawElements(GL_LINES, n_seams_, GL_UNSIGNED_INT, nullptr);
+                glDepthFunc(GL_LESS);
+            }
+        }
+
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        glDrawArrays(GL_POINTS, 0, n_vertices_);
+    }
+
     else if (draw_mode == "Smooth Shading")
     {
+        phong_shader_.set_uniform("use_vertex_color", false);
+
         if (n_faces())
         {
             draw_triangles();
@@ -816,7 +857,7 @@ void SurfaceMeshGL::draw(const mat4& projection_matrix,
     {
         phong_shader_.set_uniform("front_color", vec3(0, 1, 0));
         phong_shader_.set_uniform("back_color", vec3(0, 1, 0));
-        phong_shader_.set_uniform("use_vertex_color", false);
+        phong_shader_.set_uniform("use_vertex_color", true);
         phong_shader_.set_uniform("use_lighting", false);
         glDepthRange(0.0, 1.0);
         glDepthFunc(GL_LEQUAL);

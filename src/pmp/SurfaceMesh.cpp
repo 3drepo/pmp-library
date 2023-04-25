@@ -1075,11 +1075,21 @@ void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
 
     assert(is_boundary(opposite_halfedge(h2)));
 
+    auto v0 = to_vertex(h1);
+    auto v1 = from_vertex(h1);
+
+    // Remember the number of outgoing edges reachable from v0 & v1; we will use
+    // this to check if the graph needs to be repaired later on
+
+    auto vv0 = valence(v0);
+    auto vv1 = valence(v1);
+
     // h1 is going to become h2; it will adopt h2's connectivity and face, but
     // retain its place in memory.
 
     // Before we start to change references, collect the edges involved
 
+    auto h0 = opposite_halfedge(h1);
     auto h1n = next_halfedge(h1);
     auto h1p = prev_halfedge(h1);
     auto h2n = next_halfedge(h2);
@@ -1088,69 +1098,14 @@ void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
     auto h3n = next_halfedge(h3);
     auto h3p = prev_halfedge(h3);
 
-    // When h2/h3 is removed, it will leave h1n and h3p dangling, these 
-    // effectively form a new corner which must be slotted into an existing
-    // open corner.
+    // When h2/h3 is removed, it will leave h1n & h3p, and h1p & h3n dangling.
+    // These effectively form corners. The corners must be inserted into the
+    // existing topology at each vertex, to avoid creating distinct patches.
 
-    auto h = h3;
+    // First re-route each end around h1 and h3.
 
-    // If the edges are directly connected, they form an open corner that
-    // can be removed immediately. Otherwise we need to find another one
-    // to extend.
-
-    if (h1n != h3)
-    {
-        auto hend = h;
-        do
-        {
-            h = ccw_rotated_halfedge(h);
-            if (h == h1n)
-            {
-                h = ccw_rotated_halfedge(h); // Ignore h1n as this is part of the corner to be inserted
-            }
-        } while (h != hend && !is_boundary(h)); 
-
-        if (h == h3)
-        {
-            auto what = "Unable to find open corner";
-            throw TopologyException(what);
-        }
-    }
-
-    auto b = h;
-    auto a = prev_halfedge(b);
-
-    set_next_halfedge(a, h1n);
-    set_next_halfedge(h3p, b);
-
-    // Do the same thing at the other end
-
-    h = h1;
-
-    if (h3n != h1)
-    {
-        auto hend = h;
-        do
-        {
-            h = ccw_rotated_halfedge(h);
-            if (h == h3n)
-            {
-                h = ccw_rotated_halfedge(h);// Ignore h3n as this is part of the corner to be inserted
-            }
-        } while (h != hend && !is_boundary(h)); 
-
-        if (h == h1)
-        {
-            auto what = "Unable to find open corner";
-            throw TopologyException(what);
-        }
-    }
-
-    b = h;
-    a = prev_halfedge(b);
-
-    set_next_halfedge(a, h3n);
-    set_next_halfedge(h1p, b);
+    set_next_halfedge(h3p, h1n);
+    set_next_halfedge(h1p, h3n);
 
     // Now h1 is isolated, and can adopt h2's connectivity.
 
@@ -1165,15 +1120,61 @@ void SurfaceMesh::combine_edges(Halfedge h1, Halfedge h2)
     }
 
     // In case either vertex points to the deleted edge
-
-    auto v0 = to_vertex(h1);
-    auto v1 = from_vertex(h1);
     
     set_halfedge(v1, h1);
     set_halfedge(v0, next_halfedge(h1));
 
     adjust_outgoing_halfedge(v0);
     adjust_outgoing_halfedge(v1);
+
+    // The above operation can bisect the graph, if a halfedge crosses h1/h3.
+    // Identify if there are separate patches around each corner and reconnect
+    // them if so.
+
+    if (valence(v0) != vv0 - 1)
+    {
+        // Find a boundary around v0 in which to insert h3p/h1n
+
+        auto b = halfedge(v0); // halfedge returns a boundary edge, if there is one
+
+        if (is_boundary(b))
+        {
+            auto a = prev_halfedge(b);
+            set_next_halfedge(h3p, b);
+            set_next_halfedge(a, h1n);
+        }
+        else
+        {
+            // If we have created a non-boundary vertex, then the newly created 
+            // patch will have to go attach to a new vertex
+            auto nv = add_vertex(vpoint_[v0]);
+            set_vertex(h3p, nv);
+            set_vertex(opposite_halfedge(h1n), nv);
+            set_halfedge(nv, opposite_halfedge(h3p));
+        }
+    }
+
+    auto vv12 = valence(v1);
+    if (valence(v1) != vv1 - 1)
+    {
+        // Find a boundary around v1 in which to insert h1p/h3n
+
+        auto b = halfedge(v1);
+
+        if (is_boundary(b))
+        {
+            auto a = prev_halfedge(b);
+            set_next_halfedge(h1p, b);
+            set_next_halfedge(a, h3n);
+        }
+        else
+        {
+            auto nv = add_vertex(vpoint_[v1]);
+            set_vertex(h1p, nv);
+            set_vertex(opposite_halfedge(h3n), nv);
+            set_halfedge(nv, opposite_halfedge(h1p));
+        }
+    }
 
     // Now h2/h3 can be deleted.
 

@@ -4,8 +4,14 @@
 #include <pmp/visualization/MeshViewer.h>
 #include <pmp/algorithms/Decimation.h>
 #include <pmp/algorithms/Merge.h>
+#include <pmp/algorithms/Manifold.h>
 #include <pmp/algorithms/Normals.h>
+#include <pmp/algorithms/Triangulation.h>
+#include <pmp/algorithms/GraphViz.h>
+#include <pmp/utilities.h>
 #include <imgui.h>
+
+#include <unordered_set>
 
 using namespace pmp;
 
@@ -48,6 +54,37 @@ public:
         update_mesh();
     }
 
+    void highlight_boundary_edges()
+    {
+        auto colors = mesh_.get_halfedge_property<pmp::Color>("h:color");
+        if (!colors)
+        {
+            colors = mesh_.add_halfedge_property<pmp::Color>("h:color");
+        }
+
+        auto features = mesh_.get_edge_property<bool>("e:feature");
+        if (!features)
+        {
+            features = mesh_.add_edge_property<bool>("e:feature");
+        }
+
+        for (auto h : mesh_.halfedges())
+        {
+            if (mesh_.is_boundary(mesh_.edge(h)))
+            {
+                colors[h] = Color(1, 0, 0);
+                features[mesh_.edge(h)] = true;
+            }
+            else
+            {
+                colors[h] = Color(0, 0, 0);
+                features[mesh_.edge(h)] = false;
+            }
+        }
+
+        update_mesh();
+    }
+
     void prepare_mesh(SurfaceMesh& b)
     {
         auto a = SurfaceMesh(b);
@@ -77,19 +114,37 @@ public:
         mesh_.delete_face(faces[1]);
     }
 
-    void remove_nonincident_faces()
+protected:
+    void mouse(int button, int action, int mods)
     {
-        auto v = *mesh_.vertices_begin();
-        std::vector<pmp::Face> faces;
-        for (auto f : mesh_.faces(v))
+        if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT &&
+            shift_pressed())
         {
-            faces.push_back(f);
+            double x, y;
+            cursor_pos(x, y);
+
+            Vertex v = pick_vertex(x, y);
+            if (mesh_.is_valid(v))
+            {
+                GraphViz viz(mesh_);
+
+                // Find all other vertices
+                for (auto vb : mesh_.vertices())
+                {
+                    if (distance(mesh_.position(vb), mesh_.position(v)) <
+                        0.0001)
+                    {
+                        viz.print_topology(vb);
+                    }
+                }
+            }
         }
-        mesh_.delete_face(faces[0]);
-        mesh_.delete_face(faces[3]);
+        else
+        {
+            MeshViewer::mouse(button, action, mods);
+        }
     }
 
-protected:
     void process_imgui() override;
 };
 
@@ -109,8 +164,32 @@ void Viewer::process_imgui()
 
     if (ImGui::Button("Merge"))
     {
-        Merge m(mesh_);
-        m.merge();
+        pmp::check_mesh(mesh_);
+
+        pmp::Manifold manifold(mesh_);
+        manifold.fix_manifold();
+
+        pmp::check_mesh(mesh_);
+
+        pmp::Merge merge(mesh_);
+        merge.merge();
+
+        highlight_boundary_edges();
+
+        pmp::check_mesh(mesh_);
+
+        update_mesh();
+    }
+
+    if (ImGui::Button("Manifold"))
+    {
+        pmp::check_mesh(mesh_);
+
+        Manifold f(mesh_);
+        f.fix_manifold();
+
+        pmp::check_mesh(mesh_);
+
         mesh_.garbage_collection();
         update_mesh();
     }
@@ -147,6 +226,7 @@ void Viewer::process_imgui()
                 std::cerr << e.what() << std::endl;
                 return;
             }
+            mesh_.garbage_collection();
             update_mesh();
         }
     }
@@ -160,6 +240,9 @@ int main(int argc, char** argv)
         window.load_mesh(argv[1]);
     else
         window.create_open_cube();
+
+    window.highlight_boundary_edges();
+
     return window.run();
 #else
     Viewer window("Decimation", 800, 600);

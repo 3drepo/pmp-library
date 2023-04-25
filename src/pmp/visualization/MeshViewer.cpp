@@ -21,6 +21,7 @@ MeshViewer::MeshViewer(const char* title, int width, int height, bool showgui)
     clear_draw_modes();
     add_draw_mode("Points");
     add_draw_mode("Hidden Line");
+    add_draw_mode("Line");
     add_draw_mode("Smooth Shading");
     add_draw_mode("Texture");
     set_draw_mode("Smooth Shading");

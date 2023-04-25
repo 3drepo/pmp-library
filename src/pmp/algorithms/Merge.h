@@ -5,6 +5,7 @@
 
 #include "pmp/SurfaceMesh.h"
 #include "pmp/BoundingBox.h"
+#include <unordered_map>
 
 namespace pmp {
 

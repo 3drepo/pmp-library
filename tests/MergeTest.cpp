@@ -6,6 +6,7 @@
 #include "pmp/algorithms/Merge.h"
 #include "pmp/algorithms/Normals.h"
 #include "Helpers.h"
+#include "pmp/io/read_obj.h"
 
 using namespace pmp;
 
@@ -97,6 +98,7 @@ void check_references(SurfaceMesh& mesh)
 
     for (auto v : mesh.vertices())
     {
+        EXPECT_FALSE(mesh.is_deleted(mesh.halfedge(v)));
         EXPECT_GT(edge_indices.count(mesh.halfedge(v).idx()), 0);
         for (auto h : mesh.halfedges(v))
         {
@@ -139,6 +141,7 @@ void check_references(SurfaceMesh& mesh)
         {
             EXPECT_TRUE(h.is_valid());
             EXPECT_GT(edge_indices.count(h.idx()), 0);
+            EXPECT_EQ(mesh.face(h), f);
         }
     }
 
@@ -171,6 +174,58 @@ void check_unreachable(SurfaceMesh& mesh)
     }
 }
 
+void check_topology(SurfaceMesh& mesh) 
+{
+    // Check that all edges point to and from only one other half-edge.
+
+    for (auto h : mesh.halfedges())
+    {
+        EXPECT_EQ(mesh.next_halfedge(mesh.prev_halfedge(h)), h);
+        EXPECT_EQ(mesh.prev_halfedge(mesh.next_halfedge(h)), h);
+        EXPECT_NE(mesh.from_vertex(h), mesh.to_vertex(h));
+    }
+
+    // Check that the loops are all complete
+
+    for (auto v : mesh.vertices())
+    {
+        auto h = mesh.halfedge(v);
+
+        // Make sure h is valid
+
+        EXPECT_TRUE(mesh.is_valid(h));
+        EXPECT_FALSE(mesh.is_deleted(h));
+
+        // And that looping through the vertices doesn't get stuck
+
+        auto hend = h;
+        do
+        {
+            h = mesh.cw_rotated_halfedge(h);
+        } while (h != hend);
+
+        do
+        {
+            h = mesh.ccw_rotated_halfedge(h);
+        } while (h != hend);
+    }
+
+    // Make sure that half-edges don't point back into eachother
+
+    for (auto h : mesh.halfedges())
+    {
+        EXPECT_NE(mesh.edge(h), mesh.edge(mesh.next_halfedge(h)));
+        EXPECT_NE(mesh.edge(h), mesh.edge(mesh.prev_halfedge(h)));
+    }
+}
+
+void check_mesh(SurfaceMesh& mesh)
+{
+    check_references(mesh);
+    check_unreachable(mesh);
+    check_topology(mesh);
+}
+
 // This tests a number of preconditions to the actual tests, such that the
 // procedurally generated meshes are as expected.
 TEST(MergeTest, pretests) 
@@ -198,7 +253,7 @@ TEST(MergeTest, simple)
     SurfaceMesh mesh;
     prepare_mesh(subdivided_icosahedron(), mesh);
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     // This snippet and its counterpart check the number of edges for a face,
     // only vertices and edges should be merged: collapsing edges or combining
@@ -218,11 +273,11 @@ TEST(MergeTest, simple)
     Merge merge(mesh);
     merge.merge();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     mesh.garbage_collection();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     EXPECT_EQ(mesh.n_faces(), n_faces);
     for (auto f : mesh.faces())
@@ -249,7 +304,7 @@ TEST(MergeTest, tricube)
 
     mesh.garbage_collection();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     // During the merge, two vertices of each side can be combined: the ones
     // at the ends of the diagonal edges.
@@ -275,7 +330,7 @@ TEST(MergeTest, quadcube)
 
     mesh.garbage_collection();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     // Merging a quad cube should result in a no-op, as none of the vertices
     // can be combined, and all edges have unique start and end points.
@@ -330,7 +385,7 @@ TEST(MergeTest, open_face)
 
     mesh.garbage_collection();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     // In the case where the cube is missing one side, we expect 4 vertices and
     // 5 edges for each complete side, and nothing else.
@@ -363,7 +418,7 @@ TEST(MergeTest, open_faces)
 
     mesh.garbage_collection();
 
-    check_references(mesh);
+    check_mesh(mesh);
 
     // In the case where the cube is missing two faces and with the angle
     // threshold low, we would expect 22 vertices: 16 for the 4 complete sides,
@@ -392,5 +447,138 @@ TEST(MergeTest, unreachable_patches)
     Merge m(a);
     m.merge();
 
-    check_unreachable(a);
+    check_mesh(a);
+}
+
+const char* closed_vertex_mesh = R"(
+o Plane
+v 1.000000 0.000000 1.000000
+v -1.000000 0.000000 -2.000000
+v 1.000000 0.000000 -1.000000
+f 1 3 2
+o Plane.001
+v 3.000000 0.000000 -2.000000
+v 1.000000 0.000000 1.000000
+v 1.000000 0.000000 -1.000000
+f 4 6 5
+o Plane.002
+v 3.000000 0.000000 -2.000000
+v 1.000000 0.000000 -1.000000
+v -1.000000 0.000000 -2.000000
+f 7 9 8
+o Plane.003
+v 3.000000 0.000000 -5.375423
+v 1.000000 0.000000 -1.000000
+v 1.000000 0.000000 -5.375423
+f 10 12 11
+)";
+
+// This tests whether the algorithm can handle the case where closing an edge
+// closes the vertex, leaving no opening to re-insert separate patches
+TEST(MergeTest, closed_vertex)
+{
+    SurfaceMesh a;
+    read_obj(a, std::istringstream(std::string(closed_vertex_mesh)));
+    
+    EXPECT_EQ(a.n_vertices(), 12); // Check that the data has been correctly prepared
+
+    Merge m(a);
+    m.merge();
+
+    EXPECT_EQ(a.n_vertices(), 7);
+
+    check_mesh(a);
+}
+
+const char* planar_graph_mesh = R"(
+o Plane
+v 0.000000 0.000000 2.000000
+v -2.000000 0.000000 -1.000000
+v 0.000000 0.000000 0.000000
+s off
+f 1 3 2
+o Plane.001
+v 2.000000 0.000000 -1.000000
+v 0.000000 0.000000 2.000000
+v 0.000000 0.000000 0.000000
+s off
+f 4 6 5
+o Plane.002
+v 0.000000 0.000000 -1.000000
+v 0.000000 0.000000 0.000000
+v -2.000000 0.000000 -1.000000
+s off
+f 7 9 8
+o Plane.003
+v 2.000000 0.000000 -1.000000
+v 0.000000 0.000000 0.000000
+v 0.000000 0.000000 -1.000000
+s off
+f 10 12 11
+o Plane.005
+v 0.000000 0.000000 -3.000000
+v 0.000000 0.000000 -1.000000
+v -2.000000 0.000000 -1.000000
+s off
+f 13 15 14
+o Plane.004
+v 2.000000 0.000000 -1.000000
+v 0.000000 0.000000 -1.000000
+v 0.000000 0.000000 -3.000000
+s off
+f 16 18 17)";
+
+// This tests whether the algorithm can handle meshes that form a planar graph
+TEST(MergeTest, planar_graph)
+{
+    SurfaceMesh a;
+    read_obj(a, std::istringstream(std::string(planar_graph_mesh)));
+
+    EXPECT_EQ(a.n_vertices(), 18); // Check that the data has been correctly prepared
+
+    Merge m(a);
+    m.merge();
+
+    EXPECT_EQ(a.n_vertices(), 6);
+
+    check_mesh(a);
+}
+
+
+const char* non_planar_graph = R"(
+o Plane
+v 0.000000 0.000000 2.000000
+v -2.000000 0.000000 -1.000000
+v 0.000000 0.000000 -1.000000
+s off
+f 1 3 2
+o Plane.001
+v 2.000000 0.000000 -1.000000
+v 0.000000 0.000000 2.000000
+v 0.000000 0.000000 -1.000000
+s off
+f 4 6 5
+o Plane.004
+v 2.000000 0.000000 -2.000000
+v 0.000000 0.000000 -1.000000
+v 0.000000 0.000000 -3.000000
+s off
+f 7 9 8)";
+
+// This tests whether the algorithm can handle meshes that form a non-planar graph
+// (i.e. edges will cross at a vertex)
+TEST(MergeTest, non_planar_graph)
+{
+    SurfaceMesh a;
+    read_obj(a, std::istringstream(std::string(non_planar_graph)));
+
+    EXPECT_EQ(a.n_vertices(),
+              9); // Check that the data has been correctly prepared
+
+    Merge m(a);
+    m.merge();
+
+    EXPECT_EQ(a.n_vertices(), 6);
+
+    check_mesh(a);
 }

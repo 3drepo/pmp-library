@@ -10,5 +10,6 @@
 namespace pmp {
 
 void read_obj(SurfaceMesh& mesh, const std::filesystem::path& file);
+void read_obj(SurfaceMesh& mesh, std::basic_istream<char>& in);
 
 } // namespace pmp

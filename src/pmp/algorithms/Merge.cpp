@@ -1,7 +1,6 @@
-#pragma optimize("", off)
-
 #include "pmp/algorithms/Merge.h"
 #include "pmp/algorithms/Normals.h"
+#include "pmp/utilities.h"
 
 /**
  * The Compression Algorithm combines vertices co-located in space.
@@ -11,9 +10,9 @@
  * 
  * The algorithm works by building a spatial hash of vertex points, and then
  * comparing the distance of vertices within each cell. Vertices below the
- * distance_threshold are combined by redirecting all references to one vertex to the
- * other, then deleting the original. Afterwards, duplicate edges are removed 
- * connecting incident faces.
+ * distance_threshold are combined by redirecting all references to one vertex 
+ * to the other, then deleting the original. Afterwards, hidden boundary edges 
+ * are removed connecting the incident faces directly.
  * 
  * In this implementation, tolerance is suggestive only: vertices might not be 
  * merged if they sit on the edge of cells. To support his, the cell key should 
@@ -130,34 +129,46 @@ void Merge::merge_vertices()
         {
             continue;
         }
+
         merge_vertices(pair.first, pair.second);
     }
 }
 
-// Collapses /p v1 into /p v0 and deletes /p v1. Collapsing means
-// all references to v1 are replaced with v0.
+// Collapses /p v1 into /p v0 and deletes /p v1. Both /p v0 and /p v1 must be
+// boundary vertices.
 void Merge::merge_vertices(Vertex v0, Vertex v1)
 {
-    for (auto h : mesh.halfedges(v1))
-    {
-        // halfedges() returns the outgoing half-edges around v.
-        // Each half-edge stores the vertex it points to, so to update
-        // the topolgy, we get the opposites of the outgoing half-edges
-        // and set these.
+    // Check if the vertices are already connected by an edge. If so, that edge
+    // needs to be collapsed, which is more involved than simply re-directing 
+    // nearby edges.
 
-        mesh.set_vertex(mesh.opposite_halfedge(h), v0);
+    auto h = mesh.find_halfedge(v0, v1);
+    if (h.is_valid())
+    {
+        if(mesh.is_collapse_ok(h))
+        { 
+            mesh.collapse(h); 
+        }
+        return;
     }
 
-    // Before deleting the vertex, make sure the mesh doesn't think it
-    // points to anything that should be deleted with it.
+    // Check that this operation is possible; both vertices must have open 
+    // corners at which the connection can take place.
 
-    mesh.set_halfedge(v1, Halfedge());
+    if (!mesh.is_boundary(v0))
+    {
+        return;
+    }
+    if (!mesh.is_boundary(v1))
+    {
+        return;
+    }
 
-    mesh.delete_vertex(v1);
+    mesh.collapse(v0, v1);
 }
 
-// Finds all edges which share vertices and combines them, removing
-// the boundaries from the mesh.
+// Finds mirrored boundary edges that may be part of longer chains left over
+// during the vertex merge and combines them.
 void Merge::merge_edges()
 {
     std::unordered_map<uint64_t, std::vector<Halfedge>> edge_hash;
@@ -184,19 +195,33 @@ void Merge::merge_edges()
 
         if (edges.size() > 1)
         {
-            // Where there is a boundary that can be combined, it should
-            // occur exactly once.
-            assert(edges.size() == 2);
-
             // h1 must be the boundary edge in the pair
             auto h1 = edges[0];
             auto h2 = edges[1];
-            if (!mesh.is_boundary(h1) && mesh.is_boundary(h2))
+            if (!mesh.is_boundary(h1))
             {
                 std::swap(h1, h2);
             }
 
-            mesh.combine_edges(h1, h2);
+            // Make sure we are not touching any edges that have already been deleted.
+
+            if (mesh.is_deleted(h1))
+            {
+                continue;
+            }
+
+            if (mesh.is_deleted(h2))
+            {
+                continue;
+            }
+
+            // We can only combine edges that mirror eachother across a boundary,
+            // otherwise we would create complex edges.
+
+            if (mesh.is_boundary(h1) && mesh.is_boundary(mesh.opposite_halfedge(h2)))
+            {
+                mesh.combine_edges(h1, h2);
+            }
         }
     }
 }

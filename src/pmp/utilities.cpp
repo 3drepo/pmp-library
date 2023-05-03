@@ -119,7 +119,6 @@ void check_mesh(SurfaceMesh& mesh)
 
         // And that looping through the vertices doesn't get stuck
 
-
         auto i = 0;
         auto hend = h;
         do
@@ -175,6 +174,46 @@ void check_mesh(SurfaceMesh& mesh)
                 auto what = "Found an edge that does not reference its face.";
                 throw pmp::TopologyException(what);
             }
+        }
+    }
+
+    // Check for degenerate normals
+
+    auto p = mesh.get_vertex_property<pmp::Normal>("v:normal");
+    if (p)
+    {
+        for (auto v : mesh.vertices())
+        {
+            auto n = p[v];
+            auto dp = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+            if (dp > 1.1 || dp < 0.9)
+            {
+                auto what = "Found a non-normalized normal.";
+                throw pmp::TopologyException(what);
+            }
+        }
+    }
+
+    // Check that all halfedges for boundary vertices are the boundary halfedges
+
+    for (auto v : mesh.vertices())
+    {
+        bool has_boundary_halfedge = false;
+
+        for (auto h : mesh.halfedges(v))
+        {
+            if (mesh.is_boundary(h))
+            {
+                has_boundary_halfedge = true;
+            }
+        }
+
+        bool first_halfedge_is_boundary = mesh.is_boundary(mesh.halfedge(v));
+
+        if (has_boundary_halfedge && !first_halfedge_is_boundary)
+        {
+            auto what = "Found a boundary vertex where the halfedge is not the boundary edge.";
+            throw pmp::TopologyException(what);
         }
     }
 }

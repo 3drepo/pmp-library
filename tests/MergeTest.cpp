@@ -7,6 +7,7 @@
 #include "pmp/algorithms/Normals.h"
 #include "Helpers.h"
 #include "pmp/io/read_obj.h"
+#include "pmp/utilities.h"
 
 using namespace pmp;
 
@@ -65,165 +66,6 @@ void remove_faces(SurfaceMesh& mesh, std::vector<size_t> indices)
     {
         mesh.delete_face(faces[i]);
     }
-}
-
-// This function checks that all primitives (vertices, halfedges, faces) only
-// point to valid indices, by collecting valid indices from the enumerators
-// and checking any references against these.
-void check_references(SurfaceMesh& mesh) 
-{
-    std::set<pmp::IndexType> vertex_indices;
-    for (auto v : mesh.vertices())
-    {
-        EXPECT_TRUE(v.is_valid());
-        vertex_indices.insert(v.idx());
-    }
-
-    size_t face_valence_sum = 0;
-
-    std::set<pmp::IndexType> face_indices;
-    for (auto f : mesh.faces())
-    {
-        EXPECT_TRUE(f.is_valid());
-        face_indices.insert(f.idx());
-        face_valence_sum += mesh.valence(f);
-    }
-
-    std::set<pmp::IndexType> edge_indices;
-    for (auto e : mesh.halfedges())
-    {
-        EXPECT_TRUE(e.is_valid());
-        edge_indices.insert(e.idx());
-    }
-
-    for (auto v : mesh.vertices())
-    {
-        EXPECT_FALSE(mesh.is_deleted(mesh.halfedge(v)));
-        EXPECT_GT(edge_indices.count(mesh.halfedge(v).idx()), 0);
-        for (auto h : mesh.halfedges(v))
-        {
-            EXPECT_TRUE(h.is_valid());
-            EXPECT_GT(edge_indices.count(h.idx()), 0);
-        }
-        for(auto f : mesh.faces(v))
-        {
-            if (f.is_valid())
-            {
-                EXPECT_GT(face_indices.count(f.idx()), 0);
-            }
-        }
-    }
-
-    size_t face_halfedge_references_sum = 0;
-    for (auto h : mesh.halfedges())
-    {
-        EXPECT_TRUE(mesh.from_vertex(h).is_valid());
-        EXPECT_TRUE(mesh.to_vertex(h).is_valid());
-        EXPECT_GT(vertex_indices.count(mesh.from_vertex(h).idx()), 0);
-        EXPECT_GT(vertex_indices.count(mesh.to_vertex(h).idx()), 0);
-        if (mesh.face(h).is_valid())
-        {
-            EXPECT_GT(face_indices.count(mesh.face(h).idx()), 0);
-            face_halfedge_references_sum++;
-        }
-        if (!mesh.is_boundary(h)) // Edges without a face may still have next and prev edges where there is a hole, but all faces must be closed.
-        {
-            EXPECT_TRUE(mesh.next_halfedge(h).is_valid());
-            EXPECT_TRUE(mesh.prev_halfedge(h).is_valid());
-            EXPECT_GT(edge_indices.count(mesh.next_halfedge(h).idx()), 0);
-            EXPECT_GT(edge_indices.count(mesh.prev_halfedge(h).idx()), 0);
-        }
-    }
-
-    for (auto f : mesh.faces())
-    {
-        for(auto h : mesh.halfedges(f))
-        {
-            EXPECT_TRUE(h.is_valid());
-            EXPECT_GT(edge_indices.count(h.idx()), 0);
-            EXPECT_EQ(mesh.face(h), f);
-        }
-    }
-
-    EXPECT_EQ(face_valence_sum, face_halfedge_references_sum);
-}
-
-// This function checks for unreachable patches: patches that reference a vertex
-// but are not referenced by that vertex.
-void check_unreachable(SurfaceMesh& mesh) 
-{
-    std::unordered_map<pmp::IndexType, std::set<pmp::IndexType>>
-        outgoing_edges;
-
-    // Collect all references reachable from the vertex
-    for (auto v : mesh.vertices())
-    {
-        for (auto h : mesh.halfedges(v))
-        {
-            outgoing_edges[v.idx()].insert(h.idx());
-        }
-    }
-
-    // Now check connectivity from the other side (the edges)
-
-    for (auto h : mesh.halfedges())
-    {
-        auto v = mesh.from_vertex(h).idx();
-        auto references = outgoing_edges[v];
-        EXPECT_GT(references.count(h.idx()), 0);
-    }
-}
-
-void check_topology(SurfaceMesh& mesh) 
-{
-    // Check that all edges point to and from only one other half-edge.
-
-    for (auto h : mesh.halfedges())
-    {
-        EXPECT_EQ(mesh.next_halfedge(mesh.prev_halfedge(h)), h);
-        EXPECT_EQ(mesh.prev_halfedge(mesh.next_halfedge(h)), h);
-        EXPECT_NE(mesh.from_vertex(h), mesh.to_vertex(h));
-    }
-
-    // Check that the loops are all complete
-
-    for (auto v : mesh.vertices())
-    {
-        auto h = mesh.halfedge(v);
-
-        // Make sure h is valid
-
-        EXPECT_TRUE(mesh.is_valid(h));
-        EXPECT_FALSE(mesh.is_deleted(h));
-
-        // And that looping through the vertices doesn't get stuck
-
-        auto hend = h;
-        do
-        {
-            h = mesh.cw_rotated_halfedge(h);
-        } while (h != hend);
-
-        do
-        {
-            h = mesh.ccw_rotated_halfedge(h);
-        } while (h != hend);
-    }
-
-    // Make sure that half-edges don't point back into eachother
-
-    for (auto h : mesh.halfedges())
-    {
-        EXPECT_NE(mesh.edge(h), mesh.edge(mesh.next_halfedge(h)));
-        EXPECT_NE(mesh.edge(h), mesh.edge(mesh.prev_halfedge(h)));
-    }
-}
-
-void check_mesh(SurfaceMesh& mesh)
-{
-    check_references(mesh);
-    check_unreachable(mesh);
-    check_topology(mesh);
 }
 
 // This tests a number of preconditions to the actual tests, such that the
@@ -480,6 +322,8 @@ TEST(MergeTest, closed_vertex)
     SurfaceMesh a;
     read_obj(a, std::istringstream(std::string(closed_vertex_mesh)));
     
+    pmp::Normals::compute_vertex_normals(a);
+
     EXPECT_EQ(a.n_vertices(), 12); // Check that the data has been correctly prepared
 
     Merge m(a);

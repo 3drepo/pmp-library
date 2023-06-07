@@ -48,6 +48,23 @@ void check_mesh(SurfaceMesh& mesh)
         }
     }
 
+    // Check edges do not point to or from their own opposites
+
+    for (auto h : mesh.halfedges())
+    {
+        if (mesh.next_halfedge(h) == mesh.opposite_halfedge(h))
+        {
+            auto what = "Found a halfedge that points to its own opposite.";
+            throw pmp::TopologyException(what);
+        }
+
+        if (mesh.prev_halfedge(h) == mesh.opposite_halfedge(h))
+        {
+            auto what = "Found a halfedge that points from its own opposite.";
+            throw pmp::TopologyException(what);
+        }
+    }
+
     // Check for phantom references
 
     std::unordered_map<IndexType, std::set<IndexType>> outgoing_edges;
